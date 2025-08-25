@@ -3,13 +3,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    {
-      "source": "/api/fd",
-      "destination": "/api/fd.js"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/fd", "destination": "/api/fd.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
