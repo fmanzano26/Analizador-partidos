@@ -7,26 +7,25 @@ const COMPETITIONS = [
   { id: 2002, name: 'Bundesliga' }
 ];
 
-// ===== Utilidades Poisson =====
+// ==== Poisson
 function factorial(n){let f=1;for(let i=2;i<=n;i++)f*=i;return f;}
 function pmf(k,l){if(l<=0)return k===0?1:0;return Math.exp(-l)*Math.pow(l,k)/factorial(k);}
 function scoreMatrix(lh,la,max=10){const ph=Array.from({length:max+1},(_,i)=>pmf(i,lh));const pa=Array.from({length:max+1},(_,i)=>pmf(i,la));
   const M=Array.from({length:max+1},()=>Array(max+1).fill(0));let s=0;for(let i=0;i<=max;i++){for(let j=0;j<=max;j++){const v=ph[i]*pa[j];M[i][j]=v;s+=v;}}
   for(let i=0;i<=max;i++){for(let j=0;j<=max;j++){M[i][j]/=s||1;}}return M;}
 function derive(M){const n=M.length;let pH=0,pD=0,pA=0,ov15=0,ov25=0,ov35=0,btts=0,h1=0,a1=0;const flat=[];
-  for(let i=0;i<n;i++){for(let j=0;j<n;j++){const v=M[i][j];flat.push({i,j,v});if(i>j)pH+=v;else if(i===j)pD+=v;else pA+=v;const t=i+j; if(t>=2)ov15+=v; if(t>=3)ov25+=v; if(t>=4)ov35+=v; if(i>=1&&j>=1)btts+=v; if(i>=1)h1+=v; if(j>=1)a1+=v;}}
-  flat.sort((a,b)=>b.v-a.v);const top=flat.slice(0,5).map(({i,j,v})=>`${i}-${j} (${v.toFixed(3)})`).join(', ');
-  return{pHome:pH,pDraw:pD,pAway:pA,over15:ov15,over25:ov25,over35:ov35,btts,homeG1:h1,awayG1:a1,topScores:top};}
+  for(let i=0;i<n;i++){for(let j=0;j<n;j++){const v=M[i][j];flat.push({i,j,v});if(i>j)pH+=v;else if(i===j)pD+=v;else pA+=v;const t=i+j;if(t>=2)ov15+=v;if(t>=3)ov25+=v;if(t>=4)ov35+=v;if(i>=1&&j>=1)btts+=v;if(i>=1)h1+=v;if(j>=1)a1+=v;}}
+  flat.sort((a,b)=>b.v-a.v);const top=flat.slice(0,5).map(({i,j,v})=>`${i}-${j} (${v.toFixed(3)})`).join(', ');return{pHome:pH,pDraw:pD,pAway:pA,over15:ov15,over25:ov25,over35:ov35,btts,homeG1:h1,awayG1:a1,topScores:top};}
 const fmt=x=>(100*x).toFixed(1)+'%'; const fair=p=>p>0?(1/p).toFixed(2):'-';
 
-// ===== Helpers de datos =====
+// ==== Helpers
 function rowsFromAPIMatches(matches){
   const out=[]; for(const m of matches||[]){ const FTHG=m.score?.fullTime?.home ?? null; const FTAG=m.score?.fullTime?.away ?? null;
     if(FTHG==null||FTAG==null) continue; out.push({HomeTeam:m.homeTeam?.name||'',AwayTeam:m.awayTeam?.name||'',FTHG,FTAG}); }
   return out;
 }
 
-// Coincidencia robusta por nombre dentro de una liga concreta
+// Resolver ID dentro de la competición (más fiable que searchTeams)
 async function resolveTeamIdByCompetition(name, competitionId){
   const r = await fetch(`/api/fd?type=competitionTeams&competitionId=${competitionId}&_=${Date.now()}`);
   const j = await r.json();
@@ -53,8 +52,8 @@ export default function App(){
   const [theDate,setTheDate]=useState(()=>new Date().toISOString().slice(0,10));
   const [fixtures,setFixtures]=useState([]);
 
-  useEffect(()=>{ const stored=localStorage.getItem('theme'); if(stored==='dark'){ setDark(true); document.documentElement.classList.add('dark'); } },[]);
-  function toggleTheme(){ const root=document.documentElement; if(dark){ root.classList.remove('dark'); localStorage.setItem('theme','light'); setDark(false);} else { root.classList.add('dark'); localStorage.setItem('theme','dark'); setDark(true);} }
+  useEffect(()=>{ const s=localStorage.getItem('theme'); if(s==='dark'){ setDark(true); document.documentElement.classList.add('dark'); } },[]);
+  function toggleTheme(){ const r=document.documentElement; if(dark){ r.classList.remove('dark'); localStorage.setItem('theme','light'); setDark(false);} else { r.classList.add('dark'); localStorage.setItem('theme','dark'); setDark(true);} }
 
   async function searchTeams(){
     if(!teamQ) return;
@@ -64,12 +63,14 @@ export default function App(){
     setTeams(arr.map(t=>({id:t.id,name:t.name})));
   }
 
+  // ===== Histórico con fallbacks robustos
   async function fetchTeamHistoryByName(name){
     if(!name) return [];
-    // 1) resolver por competición (más fiable)
+
+    // 1) resolver por competición
     let t = await resolveTeamIdByCompetition(name, comp);
     if(!t){
-      // 2) último recurso: searchTeams sin filtro
+      // 2) último recurso: searchTeams global
       const r = await fetch(`/api/fd?type=searchTeams&name=${encodeURIComponent(name)}&_=${Date.now()}`);
       const j = await r.json();
       const cand = (j?.teams||[])[0];
@@ -77,25 +78,36 @@ export default function App(){
       t = { id:cand.id, name:cand.name };
     }
 
-    // A) últimos 3 años con status FINISHED
+    // A) últimos 3 años, FINISHED
     const now=new Date(); const from=new Date(now); from.setFullYear(now.getFullYear()-3);
     let r = await fetch(`/api/fd?type=teamMatches&teamId=${t.id}&status=FINISHED&dateFrom=${from.toISOString().slice(0,10)}&dateTo=${now.toISOString().slice(0,10)}&_=${Date.now()}`);
     let j = await r.json(); let matches = j?.matches || [];
 
-    // B) si está vacío, sin rango
+    // B) si vacío, sin rango
     if(matches.length===0){
       r = await fetch(`/api/fd?type=teamMatches&teamId=${t.id}&status=FINISHED&_=${Date.now()}`);
       j = await r.json(); matches = j?.matches || [];
     }
-    // C) si sigue vacío, por temporadas recientes
+
+    // C) Fallback por liga/temporada (actual + anterior)
     if(matches.length===0){
-      const seasons=[now.getFullYear()-1, now.getFullYear()-2, now.getFullYear()-3];
-      let acc=[]; for(const s of seasons){
-        const rs=await fetch(`/api/fd?type=teamMatches&teamId=${t.id}&status=FINISHED&season=${s}&_=${Date.now()}`);
-        const js=await rs.json(); acc = acc.concat(js?.matches||[]);
+      const y = new Date().getUTCFullYear();
+      const m = new Date().getUTCMonth() + 1;            // 1..12
+      const seasonStart = (m >= 7 ? y : y-1);             // temporada europea
+      const seasonsToTry = [seasonStart, seasonStart-1];
+
+      let acc = [];
+      for (const s of seasonsToTry) {
+        const url = `/api/fd?type=competitionMatches&competitionId=${comp}&status=FINISHED&season=${s}&_=${Date.now()}`;
+        const rs = await fetch(url);
+        const js = await rs.json();
+        const all = js?.matches || [];
+        const part = all.filter(m => m?.homeTeam?.id === t.id || m?.awayTeam?.id === t.id);
+        acc = acc.concat(part);
       }
-      matches=acc;
+      matches = acc;
     }
+
     return rowsFromAPIMatches(matches);
   }
 
@@ -103,7 +115,11 @@ export default function App(){
     if(!home||!away){ alert('Selecciona Local y Visitante'); return; }
     const [Rh,Ra]=await Promise.all([fetchTeamHistoryByName(home),fetchTeamHistoryByName(away)]);
     const hist=[...Rh,...Ra];
-    if(hist.length < 5) alert('Histórico insuficiente para estimar bien este partido (prueba otro equipo/fecha).');
+
+    if(hist.length < 5){
+      // Aviso suave en consola; seguimos con lo que haya
+      console.warn('Histórico corto:', hist.length);
+    }
 
     const muHome=hist.reduce((s,r)=>s+r.FTHG,0)/hist.length || 1;
     const muAway=hist.reduce((s,r)=>s+r.FTAG,0)/hist.length || 1;

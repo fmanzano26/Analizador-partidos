@@ -1,3 +1,5 @@
+
+// /api/fd.js
 export default async function handler(req, res) {
   // No cache (navegador + CDN)
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
@@ -40,6 +42,7 @@ export default async function handler(req, res) {
       if (dateFrom) p.set('dateFrom', dateFrom);
       if (dateTo) p.set('dateTo', dateTo);
       if (status) p.set('status', status);
+      if (season) p.set('season', season); // 👈 importante para el fallback por temporada
       p.set('_', Date.now().toString());
       const r = await fetch(`${base}/competitions/${competitionId}/matches?${p.toString()}`, { headers });
       return res.status(200).json(await r.json());
